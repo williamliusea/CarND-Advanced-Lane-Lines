@@ -45,20 +45,18 @@ You're reading it!
 The camera matrix was produced by iterating through all images in camera_cal to get a good sense of the distortion matrix of this camera_cal. For each image, I do the following steps:
 1. read in the images
 2. convert the image to grayscale
-3. call findChessboardCorners to find the corners and append them to detected corners. 
+3. call findChessboardCorners to find the corners and append them to detected corners.
 4. After all images are process, run calibrateCamera on the detected corners to calculate the mtx and dist array.
 5. Save the array to disk for later use.
 
 Here is an example comparing the original image and the undistorted image.
 
+Original<img src="examples/straight_lines1.jpg" width="480" alt="original image" />
+
+Undistored<img src="examples/straight_lines1_undistort.jpg" width="480" alt="original image" />
 
 The code for this step is contained in the camera_calibration.py).  
 
-I start by preparing "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image.  Thus, `objp` is just a replicated array of coordinates, and `objpoints` will be appended with a copy of it every time I successfully detect all chessboard corners in a test image.  `imgpoints` will be appended with the (x, y) pixel position of each of the corners in the image plane with each successful chessboard detection.  
-
-I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result:
-
-![alt text][image1]
 
 ### Pipeline (single images)
 
