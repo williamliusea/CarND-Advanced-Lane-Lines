@@ -130,3 +130,19 @@ Here's a [link to my video result](./project_video.mp4)
 ### Discussion
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+
+As I am testing test4.jpg, I found my current algorithm failed to detect the lane correctly. See
+<img src="examples/histogram_failed.jpg" width="480" alt="case where histogram failed" />
+
+The first thing I tried is to see if convolution will help in this case. I ran `find_print_window_centroids()` in `image.py`. But the result still signals that the algorithm failed to detect the correct lanes
+<img src="examples/convolution_failed.jpg" width="480" alt="case where convolution failed" />
+
+After looking at the windows and curve, I conclude that there are actually two issues that causes the failure to detect curve.
+1. The yellow left line blends into the bright road and causes part of the left line disappeared from the binary image.
+2. The random noise in between the dotted right line causes the center of the detection to shift too much. In `test4.jpg` case, the center shifted too much to the left. This causes the algorithm failed to discover the real line  (because it is out of the margin) when the line reappears.
+
+To solve 1, I will need to figure out a more robust way of distinguish the line with the ground in this case. It is hard to find such a solution because the real world contains many of the condition that causes the line color to blend in the road color (like rain, reflection, bright sun, dark road, wear-out line). Therefore, I don't prioritize finding solution for this.
+
+To solve 2, I can apply some heuristic on range of curve is on a road. The assumption is that people will not draw lane that is too dramatic. The dramatic curve will surely cause a lot of accidents so I don't think it is a common case. Given the speed limit on a certain part of road, it is possible to calculate the safe maximum curve of a road. It will involve doing physics calculation to factoring the friction of car tire, the centrifugal given the car is running at the speed limit with a given curvature. This is on my future TODO list to calculate the actual value based on the speed limit of 65mph. For simplicity, I use `50 pixel` as the current limit on how far the center of the line will shift between windows.
+I also accumulate the shift between windows if we cannot find a confident center in one window. This approach is much more performant than the full histogram search.
+<img src="examples/histogram_with_margin_fix.jpg" width="480" alt="dynamic margin" />

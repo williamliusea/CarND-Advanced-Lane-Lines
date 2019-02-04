@@ -38,18 +38,13 @@ def find_lane_pixels(binary_warped):
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
     # Create an output image to draw on and visualize the result
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))
+    margin_left = margin_default
+    margin_right = margin_default
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
     midpoint = np.int(histogram.shape[0]//2)
     leftx_base = np.argmax(histogram[:midpoint])
     rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-    # HYPERPARAMETERS
-    # Choose the number of sliding windows
-    nwindows = 9
-    # Set the width of the windows +/- margin
-    margin = 100
-    # Set minimum number of pixels found to recenter window
-    minpix = 50
 
     # Set height of windows - based on nwindows above and image shape
     window_height = np.int(binary_warped.shape[0]//nwindows)
@@ -72,10 +67,10 @@ def find_lane_pixels(binary_warped):
         win_y_low = binary_warped.shape[0] - (window+1)*window_height
         win_y_high = binary_warped.shape[0] - window*window_height
         ### Find the four below boundaries of the window ###
-        win_xleft_low = leftx_current - margin
-        win_xleft_high = leftx_current + margin
-        win_xright_low = rightx_current - margin
-        win_xright_high = rightx_current + margin
+        win_xleft_low = leftx_current - margin_left
+        win_xleft_high = leftx_current + margin_left
+        win_xright_low = rightx_current - margin_right
+        win_xright_high = rightx_current + margin_right
 
         # Draw the windows on the visualization image
         cv2.rectangle(out_img,(win_xleft_low,win_y_low),
@@ -95,12 +90,31 @@ def find_lane_pixels(binary_warped):
         left_lane_inds.append(good_left_inds)
         right_lane_inds.append(good_right_inds)
 
+        ### The adaptive margin shall be related to a reasonable range of road curvature
+        ### The idea is that a road shall not curve too much. Therefore, if it cannot find
+        ### the line in one window, we can assume it will not be too far away from the
+        ### the range of curvature in the next window.
         ### If you found > minpix pixels, recenter next window ###
         ### (`right` or `leftx_current`) on their mean position ###
         if len(good_left_inds) > minpix:
-            leftx_current = int(np.mean(nonzerox[good_left_inds]))
+            new_leftx = int(np.mean(nonzerox[good_left_inds]))
+            if (abs(new_leftx - leftx_current) < margin_left / 2):
+                leftx_current = new_leftx
+                margin_left = margin_default
+            else:
+                margin_left = margin_left + margin_default
+        else:
+            margin_left = margin_left + margin_default
+
         if len(good_right_inds) > minpix:
-            rightx_current = int(np.mean(nonzerox[good_right_inds]))
+            new_rightx = int(np.mean(nonzerox[good_right_inds]))
+            if (abs(new_rightx - rightx_current) < margin_right / 2):
+                rightx_current = new_rightx
+                margin_right = margin_default
+            else:
+                margin_right = margin_right + margin_default;
+        else:
+            margin_right = margin_right + margin_default;
 
     # Concatenate the arrays of indices (previously was a list of lists of pixels)
     try:
@@ -153,9 +167,11 @@ def find_window_centroids(image, window_width, window_height, margin):
 
     # Sum quarter bottom of image to get slice, could use a different ratio
     l_sum = np.sum(image[int(3*image.shape[0]/4):,:int(image.shape[1]/2)], axis=0)
-    l_center = np.argmax(np.convolve(window,l_sum))-window_width/2
+    l_convolution = np.convolve(window,l_sum)
+    l_center = np.argmax(l_convolution)-window_width/2
     r_sum = np.sum(image[int(3*image.shape[0]/4):,int(image.shape[1]/2):], axis=0)
-    r_center = np.argmax(np.convolve(window,r_sum))-window_width/2+int(image.shape[1]/2)
+    r_convolution = np.convolve(window,r_sum)
+    r_center = np.argmax(r_convolution)-window_width/2+int(image.shape[1]/2)
 
     # Add what we found for the first layer
     window_centroids.append((l_center,r_center))
@@ -188,7 +204,7 @@ def window_mask(width, height, img_ref, center,level):
 def find_print_window_centroids(warped):
     window_width = 50
     window_height = 80 # Break image into 9 vertical layers since image height is 720
-    margin = 100 # How much to slide left and right for searching
+    margin = margin_default # How much to slide left and right for searching
     window_centroids = find_window_centroids(warped, window_width, window_height, margin)
     # If we found any window centers
     if len(window_centroids) > 0:
@@ -281,6 +297,13 @@ else:
 # dst= np.float32([[246, 474], [1060,474], [246, 700], [1060, 700]])
 cam = camera.Camera()
 cam.load('camera.p')
+# HYPERPARAMETERS
+# Choose the number of sliding windows
+nwindows = 9
+# Set the width of the windows +/- margin
+margin_default = 100
+# Set minimum number of pixels found to recenter window
+minpix = 100
 for name in filenames:
     #reading in an image
     image = mpimg.imread('test_images/'+name)
