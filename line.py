@@ -13,11 +13,13 @@ class Line():
         self.bestx = None
         #polynomial coefficients averaged over the last n iterations
         self.best_fit = None
-        #polynomial coefficients for the most recent fit
+        #polynomial coefficients based on meters for the most recent fit
         self.current_fit = [np.array([False])]
-        #radius of curvature of the line in some units
+        #radius of curvature of the line in meters
         self.radius_of_curvature = None
-        #distance in meters of vehicle center from the line
+        # distance in meters of vehicle center from the line,
+        # positive value means on the right side of center
+        # negative value means on the left side of center
         self.line_base_pos = None
         #difference in fit coefficients between last and new fits
         self.diffs = np.array([0,0,0], dtype='float')
@@ -25,4 +27,13 @@ class Line():
         self.allx = None
         #y values for detected line pixels
         self.ally = None
-    
+
+    def fit_polynomial(self, ploty, width_pixel):
+        # note that y is first and x is second because the plot is iterating on y, not x.
+        new_fit = np.polyfit(self.ally * self.config.ym_per_pix, self.allx * self.config.xm_per_pix, 2)
+        if (self.current_fit is not None):
+            self.diffs = new_fit - self.current_fit
+        self.current_fit = new_fit
+        self.recent_xfitted = (self.current_fit[0]*(ploty*self.config.ym_per_pix)**2 + self.current_fit[1]*ploty*self.config.ym_per_pix + self.current_fit[2])/self.config.xm_per_pix
+        self.line_base_pos = (self.recent_xfitted[-1] - width_pixel/2) * self.config.xm_per_pix
+        self.radius_of_curvature = (1+(2*self.current_fit[0]*ploty[-1]*self.config.ym_per_pix + self.current_fit[1])**2)**1.5/2/np.absolute(self.current_fit[0])
