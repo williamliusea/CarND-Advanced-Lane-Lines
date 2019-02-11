@@ -9,9 +9,9 @@ import processimage
 import config
 import line
 
-def find_lane_pixels(binary_warped, left_line, right_line):
+def find_lane_pixels(binary_warped):
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))
-    window_boundary = processor.find_lane_pixels(binary_warped, left_line, right_line)
+    window_boundary = processor.find_lane_pixels(binary_warped)
     # Step through the windows one by one
     for window in window_boundary:
         # Draw the windows on the visualization image
@@ -25,15 +25,15 @@ def find_lane_pixels(binary_warped, left_line, right_line):
 # Fits a curve using actual world dimension in meters
 def fit_polynomial(binary_warped, left_line, right_line):
     # Find our lane pixels first
-    out_img = find_lane_pixels(binary_warped, left_line, right_line)
-    left_line.fit_polynomial(ploty, binary_warped.shape[1])
-    right_line.fit_polynomial(ploty, binary_warped.shape[1])
+    out_img = find_lane_pixels(binary_warped)
+    left_line.fit_polynomial(processor.ploty, binary_warped.shape[1])
+    right_line.fit_polynomial(processor.ploty, binary_warped.shape[1])
     ## Visualization ##
     # Colors in the left and right lane regions and Plots the left and right polynomials on the lane lines
     out_img[left_line.ally, left_line.allx] = [255, 0, 0]
     out_img[right_line.ally, right_line.allx] = [0, 0, 255]
-    out_img[np.int32(ploty), np.int32(left_line.recent_xfitted)] = [0, 255, 0]
-    out_img[np.int32(ploty), np.int32(right_line.recent_xfitted)] = [0, 255, 0]
+    out_img[np.int32(processor.ploty), np.int32(left_line.recent_xfitted)] = [0, 255, 0]
+    out_img[np.int32(processor.ploty), np.int32(right_line.recent_xfitted)] = [0, 255, 0]
     return out_img
 
 def window_mask(width, height, img_ref, center,level):
@@ -80,8 +80,8 @@ def printOverlay(undistort, warped, left_line, right_line, src, dest):
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_line.recent_xfitted, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_line.recent_xfitted, ploty])))])
+    pts_left = np.array([np.transpose(np.vstack([left_line.recent_xfitted, processor.ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_line.recent_xfitted, processor.ploty])))])
     pts = np.hstack((pts_left, pts_right))
 
     # Draw the lane onto the warped blank image
@@ -89,6 +89,7 @@ def printOverlay(undistort, warped, left_line, right_line, src, dest):
     offset = (left_line.line_base_pos + right_line.line_base_pos)/2
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
     newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0]))
+    offset = (processor.left_line.line_base_pos + processor.right_line.line_base_pos)/2
     # Combine the result with the original image
     result = cv2.addWeighted(undistort, 1, newwarp, 0.3, 0)
     cv2.putText(result,'Radius of Curvature = ' + str((int)((left_line.radius_of_curvature + right_line.radius_of_curvature) / 2)) + "(m)", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
@@ -110,16 +111,12 @@ else:
     filenames = [args.filename]
 # src= np.float32([[564, 474], [717,474], [246, 700], [1060, 700]])
 # dst= np.float32([[246, 474], [1060,474], [246, 700], [1060, 700]])
-cam = camera.Camera()
-cam.load('camera.p')
-left_line = line.Line()
-right_line = line.Line()
-processor = processimage.ProcessImage(config)
 for name in filenames:
     #reading in an image
     image = mpimg.imread('test_images/'+name)
     img_size = (image.shape[1], image.shape[0])
-    ploty = np.linspace(0, image.shape[0]-1, image.shape[0])
+    cam = camera.Camera()
+    cam.load('camera.p')
     src = np.float32(
         [[(img_size[0] / 2) - 60, img_size[1] / 2 + 100],
         [((img_size[0] / 6) - 25), img_size[1]],
@@ -132,9 +129,9 @@ for name in filenames:
         [(img_size[0] * 3 / 4), 0]])
     config = config.Config()
     config.setPerspectiveMatrix(src, dst)
-    processor.config = config
-    left_line.config = config
-    right_line.config = config
+    config.shape = image.shape
+    config.camera = cam
+    processor = processimage.ProcessImage(config)
     undistort = cam.undistort(image)
     mpimg.imsave('test_images_output/undistort_'+name, undistort)
     binary = processor.color_binary(undistort)
@@ -143,7 +140,7 @@ for name in filenames:
     mpimg.imsave('test_images_output/warped_'+name, warped)
     centroids = find_print_window_centroids(warped)
     mpimg.imsave('test_images_output/centroids'+name, centroids)
-    fitted = fit_polynomial(warped, left_line, right_line)
+    fitted = fit_polynomial(warped, processor.left_line, processor.right_line)
     mpimg.imsave('test_images_output/fitted_'+name, fitted)
-    result = printOverlay(undistort, warped, left_line, right_line, src, dst)
+    result = printOverlay(undistort, warped, processor.left_line, processor.right_line, src, dst)
     mpimg.imsave('test_images_output/overlay_'+name, result)

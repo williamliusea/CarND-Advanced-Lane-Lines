@@ -67,13 +67,13 @@ To demonstrate this step, I will describe how I apply the distortion correction 
 
 #### 2. Convert the distortion-corrected image to binary image
 
-I used a combination of color and gradient thresholds to generate a binary image (thresholding steps in method `color_binary()` in `image.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
+I used a combination of color and gradient thresholds to generate a binary image (thresholding steps in method `color_binary()` in `processimage.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
 
 <img src="examples/straight_lines1_binary.jpg" width="480" alt="binary image" />
 
 #### 3. Do perspective transform to the binary image
 
-The code for my perspective transform includes a function called `warp_image()`, which appears in the file `image.py` (image.py).  The `warp_image()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dest`) points.  I chose the hardcode the source and destination points in the following manner:
+The code for my perspective transform includes a function called `warp_image()`, which appears in the file `processimage.py`.  The `warp_image()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dest`) points.  I chose the hardcode the source and destination points in the following manner:
 
 ```python
   src = np.float32(
@@ -109,27 +109,26 @@ Then I did some other stuff and fit my lane lines with a 2nd order polynomial ki
 
 #### 5. Use the formulate in the course to calculate the curvature
 To make it readable, I change the code to convert the curvature in to meters.
-I did this in method `measure_curvature_pixels` in my code in `image.py`
+I did this in method `fit_polynomial` in my code in `line.py`
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
+I implemented this step in `processimage.py` in the function `printOverlay()`.  Here is an example of my result on a test image:
 
-![alt text][image6]
-
+<img src="examples/straight_lines1_overlay.jpg" width="480" alt="overlay image" />
 ---
 
 ### Pipeline (video)
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
+Here's a [link to my video result](./examples/project_video.mp4)
 
 ---
 
 ### Discussion
 
-#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+#### 1. Discussion on single image detection
 
 As I am testing test4.jpg, I found my current algorithm failed to detect the lane correctly. See
 <img src="examples/histogram_failed.jpg" width="480" alt="case where histogram failed" />
@@ -143,6 +142,20 @@ After looking at the windows and curve, I conclude that there are actually two i
 
 To solve 1, I will need to figure out a more robust way of distinguish the line with the ground in this case. It is hard to find such a solution because the real world contains many of the condition that causes the line color to blend in the road color (like rain, reflection, bright sun, dark road, wear-out line). Therefore, I don't prioritize finding solution for this.
 
-To solve 2, I can apply some heuristic on range of curve is on a road. The assumption is that people will not draw lane that is too dramatic. The dramatic curve will surely cause a lot of accidents so I don't think it is a common case. Given the speed limit on a certain part of road, it is possible to calculate the safe maximum curve of a road. It will involve doing physics calculation to factoring the friction of car tire, the centrifugal given the car is running at the speed limit with a given curvature. This is on my future TODO list to calculate the actual value based on the speed limit of 65mph. For simplicity, I use `50 pixel` as the current limit on how far the center of the line will shift between windows.
+To solve 2, I can apply some heuristic on range of curve is on a road. The assumption is that people will not draw lane that is too dramatic. The dramatic curve will surely cause a lot of accidents so I don't think it is a common case. Given the speed limit on a certain part of road, it is possible to calculate the safe maximum curve of a road. It will involve doing physics calculation to factoring the friction of car tire, the centrifugal acceleration given the car is running at the speed limit with a given curvature.
+      G = v^2/r
+
+This is on my future TODO list to calculate the actual value based on the speed limit of 65mph. For simplicity, I assume the minimal radius of the curvature is 200m.
+
+     (x-r)^2 + y^2 = r^2
+
+
+  `50 pixel` as the current limit on how far the center of the line will shift between windows.
 I also accumulate the shift between windows if we cannot find a confident center in one window. This approach is much more performant than the full histogram search.
 <img src="examples/histogram_with_margin_fix.jpg" width="480" alt="dynamic margin" />
+
+#### 2. Discussion on video
+First I tested the `project_video.mp4`, while most of the time my algorithm can detect the
+
+#### 3. performance
+project_video.mp4, 1261 frames, 140 seconds -> 9 frames per second.

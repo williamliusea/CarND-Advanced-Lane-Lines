@@ -5,10 +5,17 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import config
+import line
+import time
 
 class ProcessImage():
     def __init__(self, config):
         self.config = config
+        self.left_line = line.Line(config)
+        self.right_line = line.Line(config)
+        self.ploty = np.linspace(0, config.shape[0]-1, config.shape[0])
+        self.perf= {'undistort':0,'binary':0,'warp':0,'find_lane':0,'fit_polynomial':0,'print':0}
+        self.total = 0
 
     def color_binary(self, img):
         img = np.copy(img)
@@ -36,16 +43,16 @@ class ProcessImage():
         warped = cv2.warpPerspective(img, self.config.perspective_M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
         return warped
 
-    def find_lane_pixels(self, img, left_line, right_line):
+    def find_lane_pixels(self, img):
         # Take a histogram of the bottom half of the image
         histogram = np.sum(img[img.shape[0]//2:,:], axis=0)
-        margin_left = self.config.margin_default
-        margin_right = self.config.margin_default
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
         midpoint = np.int(histogram.shape[0]//2)
         leftx_base = np.argmax(histogram[:midpoint])
+        margin_left = self.config.margin_default
         rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+        margin_right = self.config.margin_default
 
         # Set height of windows - based on nwindows above and image shape
         window_height = np.int(img.shape[0]//self.config.nwindows)
@@ -121,12 +128,12 @@ class ProcessImage():
             pass
 
         # Extract left and right line pixel positions
-        left_line.allx = nonzerox[left_lane_inds]
-        left_line.ally = nonzeroy[left_lane_inds]
-        right_line.allx = nonzerox[right_lane_inds]
-        right_line.ally = nonzeroy[right_lane_inds]
+        self.left_line.allx = nonzerox[left_lane_inds]
+        self.left_line.ally = nonzeroy[left_lane_inds]
+        self.right_line.allx = nonzerox[right_lane_inds]
+        self.right_line.ally = nonzeroy[right_lane_inds]
 
-        return window_boundary
+        return np.int32(window_boundary)
 
     def find_window_centroids(self, image):
         window_centroids = [] # Store the (left,right) window centroid positions per level
@@ -163,5 +170,55 @@ class ProcessImage():
     	    r_center = np.argmax(conv_signal[r_min_index:r_max_index])+r_min_index-offset
     	    # Add what we found for that layer
     	    window_centroids.append((l_center,r_center))
-
         return window_centroids
+
+    def printOverlay(self, undistort, warped):
+        # Create an image to draw the lines on
+        warp_zero = np.zeros_like(warped).astype(np.uint8)
+        color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+        # Recast the x and y points into usable format for cv2.fillPoly()
+        pts_left = np.array([np.transpose(np.vstack([self.left_line.bestx, self.ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right_line.bestx, self.ploty])))])
+        # pts_left = np.array([np.transpose(np.vstack([self.left_line.recent_xfitted[-1], self.ploty]))])
+        # pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right_line.recent_xfitted[-1], self.ploty])))])
+        pts = np.hstack((pts_left, pts_right))
+
+        # Draw the lane onto the warped blank image
+        cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+        offset = (self.left_line.line_base_pos + self.right_line.line_base_pos)/2
+        # Warp the blank back to original image space using inverse perspective matrix (Minv)
+        newwarp = cv2.warpPerspective(color_warp, self.config.perspective_Minv, (self.config.shape[1], self.config.shape[0]))
+        # Combine the result with the original image
+        result = cv2.addWeighted(undistort, 1, newwarp, 0.3, 0)
+        cv2.putText(result,'Radius of Curvature = ' + str((int)((self.left_line.radius_of_curvature + self.right_line.radius_of_curvature) / 2)) + "(m)", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+        placetext= "center"
+        if offset > 0:
+            placetext = "{0:.2f}".format(offset) +"m left of center"
+        elif offset < 0:
+            placetext = "{0:.2f}".format(-offset) +"m right of center"
+        cv2.putText(result,'Vehicle is ' + placetext, (10,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+        return result
+
+    def process_image(self, image):
+        start = time.time()
+        undistort = self.config.camera.undistort(image)
+        self.perf['undistort'] = self.perf['undistort'] + (time.time() - start)
+        start = time.time()
+        binary = self.color_binary(undistort)
+        self.perf['binary'] = self.perf['binary'] + (time.time() - start)
+        start = time.time()
+        warped = self.warp_image(binary)
+        self.perf['warp'] = self.perf['warp'] + (time.time() - start)
+        start = time.time()
+        self.find_lane_pixels(warped)
+        self.perf['find_lane'] = self.perf['find_lane'] + (time.time() - start)
+        start = time.time()
+        self.left_line.fit_polynomial(self.ploty, warped.shape[1])
+        self.right_line.fit_polynomial(self.ploty, warped.shape[1])
+        self.perf['fit_polynomial'] = self.perf['fit_polynomial'] + (time.time() - start)
+        start = time.time()
+        output = self.printOverlay(undistort, warped)
+        self.perf['print'] = self.perf['print'] + (time.time() - start)
+        self.total = self.total + 1
+        return output
