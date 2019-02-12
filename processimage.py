@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import config
 import line
 import time
+import math
 
 class ProcessImage():
     def __init__(self, config):
@@ -21,8 +22,11 @@ class ProcessImage():
         img = np.copy(img)
         # Convert to HLS color space and separate the V channel
         hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+        #h_channel = hls[:,:,0]
         l_channel = hls[:,:,1]
         s_channel = hls[:,:,2]
+
+        # taking h_channel into account, yellow's main band is
         # Sobel x
         sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0) # Take the derivative in x
         abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
@@ -44,15 +48,26 @@ class ProcessImage():
         return warped
 
     def find_lane_pixels(self, img):
-        # Take a histogram of the bottom half of the image
-        histogram = np.sum(img[img.shape[0]//2:,:], axis=0)
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
-        midpoint = np.int(histogram.shape[0]//2)
-        leftx_base = np.argmax(histogram[:midpoint])
-        margin_left = self.config.margin_default
-        rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-        margin_right = self.config.margin_default
+        midpoint = np.int(img.shape[1]//2)
+        if (self.left_line.bestx is None or self.left_line.detected == False):
+            # Take a histogram of the bottom half of the image
+            histogram_left = np.sum(img[img.shape[0]//2:,:img.shape[1]//2], axis=0)
+            leftx_base = np.argmax(histogram_left)
+            margin_left = self.config.margin_default
+        else:
+            leftx_base = self.left_line.bestx[-self.config.y_per_frame]
+            # 4 is a heuristic number to narrow the search margin because we have confident on position based on previous value
+            margin_left = self.config.margin_default/4
+
+        if (self.right_line.bestx is None or self.right_line.detected == False):
+            histogram_right = np.sum(img[img.shape[0]//2:,img.shape[1]//2:], axis=0)
+            rightx_base = np.argmax(histogram_right) + midpoint
+            margin_right = self.config.margin_default
+        else:
+            rightx_base = self.right_line.bestx[-self.config.y_per_frame]
+            margin_right = self.config.margin_default/4
 
         # Set height of windows - based on nwindows above and image shape
         window_height = np.int(img.shape[0]//self.config.nwindows)
@@ -84,8 +99,6 @@ class ProcessImage():
             ### Identify the nonzero pixels in x and y within the window ###
             good_left_inds = ((nonzerox > win_xleft_low) & (nonzerox < win_xleft_high) &
                 (nonzeroy > win_y_low) & (nonzeroy < win_y_high)).nonzero()[0]
-            #print(((nonzerox > win_xleft_low) & (nonzerox < win_xleft_high) &
-            #    (nonzeroy > win_y_low) & (nonzeroy < win_y_high)).nonzero())
             good_right_inds = ((nonzerox > win_xright_low) & (nonzerox < win_xright_high) &
                 (nonzeroy > win_y_low) & (nonzeroy < win_y_high)).nonzero()[0]
 
@@ -200,10 +213,60 @@ class ProcessImage():
         cv2.putText(result,'Vehicle is ' + placetext, (10,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
         return result
 
-    def process_image(self, image):
+    def process_image_fit(self, undistort):
+        warped = self.process_image_warped(undistort)
         start = time.time()
-        undistort = self.config.camera.undistort(image)
+        self.find_lane_pixels(warped)
+        self.perf['find_lane'] = self.perf['find_lane'] + (time.time() - start)
+        out_img = np.dstack((warped, warped, warped))
+        window_boundary = self.find_lane_pixels(warped)
+        # Step through the windows one by one
+        for window in window_boundary:
+            # Draw the windows on the visualization image
+            cv2.rectangle(out_img,(window[0],window[4]),
+            (window[1],window[5]),(0,255,0), 2)
+            cv2.rectangle(out_img,(window[2],window[4]),
+            (window[3],window[5]),(0,255,0), 2)
+        start = time.time()
+        self.left_line.fit_polynomial(self.ploty, warped.shape[1])
+        self.right_line.fit_polynomial(self.ploty, warped.shape[1])
+        self.perf['fit_polynomial'] = self.perf['fit_polynomial'] + (time.time() - start)
+            ## Visualization ##
+        # Colors in the left and right lane regions and Plots the left and right polynomials on the lane lines
+        out_img[self.left_line.ally, self.left_line.allx] = [255, 0, 0]
+        out_img[self.right_line.ally, self.right_line.allx] = [0, 0, 255]
+        for j in range(len(self.left_line.recent_xfitted)):
+            for i in range(len(self.ploty)):
+                x = self.left_line.recent_xfitted[j][i];
+                if (x >= 0 and x < undistort.shape[1]):
+                    out_img[np.int32(self.ploty[i]), np.int32(x)] = [0, 255, 0]
+        for j in range(len(self.right_line.recent_xfitted)):
+            for i in range(len(self.ploty)):
+                x = self.right_line.recent_xfitted[j][i];
+                if (x >= 0 and x < undistort.shape[1]):
+                    out_img[np.int32(self.ploty[i]), np.int32(x)] = [0, 255, 0]
+        return out_img
+
+    def process_image_warped(self, undistort):
+        binary = self.process_image_binary(undistort)
+        start = time.time()
+        warped = self.warp_image(binary)
+        self.perf['warp'] = self.perf['warp'] + (time.time() - start)
+        return warped
+
+    def process_image_binary(self, undistort):
+        start = time.time()
+        binary = self.color_binary(undistort)
+        self.perf['binary'] = self.perf['binary'] + (time.time() - start)
+        return binary
+
+    def undistort(self, img):
+        start = time.time()
+        undistort = self.config.camera.undistort(img)
         self.perf['undistort'] = self.perf['undistort'] + (time.time() - start)
+        return undistort
+
+    def process_image(self, undistort):
         start = time.time()
         binary = self.color_binary(undistort)
         self.perf['binary'] = self.perf['binary'] + (time.time() - start)

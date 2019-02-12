@@ -133,7 +133,7 @@ Here's a [link to my video result](./examples/project_video.mp4)
 As I am testing test4.jpg, I found my current algorithm failed to detect the lane correctly. See
 <img src="examples/histogram_failed.jpg" width="480" alt="case where histogram failed" />
 
-The first thing I tried is to see if convolution will help in this case. I ran `find_print_window_centroids()` in `image.py`. But the result still signals that the algorithm failed to detect the correct lanes
+The first thing I tried is to see if convolution will help in this case. I ran `find_print_window_centroids()` in `processimage.py`. But the result still signals that the algorithm failed to detect the correct lanes
 <img src="examples/convolution_failed.jpg" width="480" alt="case where convolution failed" />
 
 After looking at the windows and curve, I conclude that there are actually two issues that causes the failure to detect curve.
@@ -142,20 +142,43 @@ After looking at the windows and curve, I conclude that there are actually two i
 
 To solve 1, I will need to figure out a more robust way of distinguish the line with the ground in this case. It is hard to find such a solution because the real world contains many of the condition that causes the line color to blend in the road color (like rain, reflection, bright sun, dark road, wear-out line). Therefore, I don't prioritize finding solution for this.
 
-To solve 2, I can apply some heuristic on range of curve is on a road. The assumption is that people will not draw lane that is too dramatic. The dramatic curve will surely cause a lot of accidents so I don't think it is a common case. Given the speed limit on a certain part of road, it is possible to calculate the safe maximum curve of a road. It will involve doing physics calculation to factoring the friction of car tire, the centrifugal acceleration given the car is running at the speed limit with a given curvature.
-      G = v^2/r
-
-This is on my future TODO list to calculate the actual value based on the speed limit of 65mph. For simplicity, I assume the minimal radius of the curvature is 200m.
+To solve 2, I can apply some heuristic on range of curve is on a road. The assumption is that people will not draw lane that is too dramatic. The dramatic curve will surely cause a lot of accidents so I don't think it is a common case. Given the speed limit on a certain part of road, it is possible to calculate the safe maximum curve of a road. It will involve doing physics calculation to factoring the friction of car tire, the centrifugal acceleration given the car is running at the speed limit with a given curvature.This is on my future TODO list to calculate the actual value based on the speed limit of 65mph. For simplicity, I assume the minimal radius of the curvature is 200m. And apply the y = 360 pixel to the following formula.
+The x is the default margin.
 
      (x-r)^2 + y^2 = r^2
 
-
-  `50 pixel` as the current limit on how far the center of the line will shift between windows.
 I also accumulate the shift between windows if we cannot find a confident center in one window. This approach is much more performant than the full histogram search.
 <img src="examples/histogram_with_margin_fix.jpg" width="480" alt="dynamic margin" />
 
 #### 2. Discussion on video
-First I tested the `project_video.mp4`, while most of the time my algorithm can detect the
+To run the project video, use "python ./video.py project_video.mp4"
 
-#### 3. performance
-project_video.mp4, 1261 frames, 140 seconds -> 9 frames per second.
+First I tested the `project_video.mp4`, while most of the time my algorithm can detect the lines correctly. The challenge is at about 23s. The car runs into a patch of road that is light color and making the yellow line mixed into the background. The following shows how my algorithm failed to detect the left line correctly
+<img src="examples/challenge.png" width="480" alt="challenging patch of road" />
+<img src="examples/fitted_challenge.jpg" width="480" alt="challenging patch of road" />
+
+To solve this, I first think of changing the thresholds. But lowering the thresholds will add in too much noise that will impact the detection on other cases.
+A better solution is to utilize previous positions of the line. This leads me to the following method.
+Position of the previous line provides some benefits
+1. the current line position shall be close to the previous line.
+2. if the current line position differs from the previous position too much, it means the current line maybe wrong. We can discard the current line position and use projected line from the previous line
+
+Another factor to take into account is the car is moving. Therefore, the new frame will have a certain shift from the previous frame. The frame shift can be estimated by the speed and the `ym_per_pix`. For example, if `fps = 25`, `ym_per_pix=0.0417` and `speed=104 m/s`, the y pixel shift is `100 pixel per frame`.  
+
+This approach significantly improved the detection of the `proejct_video.mp4` detection.
+Here's a [link to my video result](./examples/project_video_with_previous_position.mp4)
+
+But it is still not to my satisfaction. The algorithm can take the previous line into account better. If the new line is too far from the previous line, it is consider not trustworthy and will be discarded.
+To determine the difference between the previous line and the new line, I need to take the change between frames into account. So I project the previous lines with the knowledge of how many pixel the line will move in y direction. This number is calculated using the speed of the car.
+
+But it still does not solve the challenge in `challenge_video.mp4`. The hard part is the pavement patch creates an artificial line that mislead the algorithm to follow. I am running out of easy solutions to detect lines or correctly in this case.
+Here is an example of what goes wrong with the line detection.
+
+<img src="examples/challenge_video_debug.png" width="480" alt="challenging patch of road" />
+
+
+`harder_challenge_video.mp4`. This is even harder. The road sign of view is significantly shorter than the highway videos. This means the naive approach of using the lower half of the image will result in a lot of the road side noises.
+
+<img src="examples/harder_challenge_debug.png" width="480" alt="challenging patch of road" />
+
+I don't find good solution to the problems for the line detection noise in the videos. I will need to figure out someone more creative.
